@@ -139,7 +139,7 @@ public final class ModrinthSource implements DependencySource {
                 dependency.name(),
                 version,
                 downloadUrl,
-                sha512, // Modrinth uses SHA-512, we'll verify differently
+                null, // Modrinth uses SHA-512, not SHA-256; skip verification
                 dependency.fileName() != null ? dependency.fileName() : fileName
             );
         } catch (DependencyException e) {
