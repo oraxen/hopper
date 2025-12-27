@@ -76,9 +76,12 @@ class PublishData(private val project: Project) {
     private var hashLength: Int = 7
 
     private fun getReleaseType(): Type {
+        val ref = System.getenv("GITHUB_REF") ?: ""
         val branch = getCheckedOutBranch()
         println("Branch: $branch")
         return when {
+            // Version tags (v1.0.0, v1.2.3, etc.) should publish as releases
+            ref.startsWith("refs/tags/v") -> Type.RELEASE
             branch.contentEquals("master") || branch.contentEquals("main") -> Type.RELEASE
             branch.contentEquals("develop") -> Type.SNAPSHOT
             else -> Type.DEV
