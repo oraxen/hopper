@@ -1,0 +1,48 @@
+# ---- Gradle ----
+.gradle/
+**/build/
+build/
+
+# ---- Java ----
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+# Keep the Gradle wrapper jar checked in
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- IDEs / editors ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+.project
+.classpath
+.settings/
+
+*.swp
+*.swo
+
+# ---- Local build/output dirs ----
+**/bin/
+bin/
+out/
+**/out/
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Nix / direnv ----
+.direnv/
+.envrc
+result
+
+# ---- Logs ----
+*.log
+
+
