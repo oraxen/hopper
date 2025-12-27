@@ -4,6 +4,7 @@ import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyException;
 import md.thomas.hopper.DependencySource;
 import md.thomas.hopper.DependencySource.ChecksumType;
+import md.thomas.hopper.MinecraftVersion;
 import md.thomas.hopper.Platform;
 import md.thomas.hopper.util.HttpClient;
 import md.thomas.hopper.util.JsonParser;
@@ -33,7 +34,8 @@ public final class ModrinthSource implements DependencySource {
     @Override
     public @NotNull List<Version> fetchVersions(@NotNull Dependency dependency) throws DependencyException {
         String slug = dependency.identifier();
-        String mcVersion = dependency.minecraftVersion();
+        // Use effective MC version (explicit > global > null)
+        String mcVersion = MinecraftVersion.getEffective(dependency);
         Platform platform = dependency.platform().resolve();
 
         try {
