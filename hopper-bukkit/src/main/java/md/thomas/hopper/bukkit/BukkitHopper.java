@@ -9,6 +9,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -16,27 +18,27 @@ import java.util.logging.Logger;
 /**
  * Bukkit/Spigot convenience wrapper for Hopper.
  * <p>
- * <h2>Usage</h2>
+ * <h2>Basic Usage (Download Only)</h2>
  * <pre>{@code
  * public class MyPlugin extends JavaPlugin {
- *     
+ *
  *     public MyPlugin() {
  *         // Register in constructor
  *         BukkitHopper.register(this, deps -> {
  *             deps.require(Dependency.hangar("ProtocolLib").minVersion("5.0.0").build());
  *         });
  *     }
- *     
+ *
  *     @Override
  *     public void onLoad() {
  *         // Download in onLoad (before onEnable)
  *         DownloadResult result = BukkitHopper.download(this);
- *         
+ *
  *         if (result.requiresRestart()) {
  *             getLogger().severe("Dependencies downloaded. Restart required!");
  *         }
  *     }
- *     
+ *
  *     @Override
  *     public void onEnable() {
  *         if (!BukkitHopper.isReady(this)) {
@@ -48,10 +50,49 @@ import java.util.logging.Logger;
  *     }
  * }
  * }</pre>
+ * <p>
+ * <h2>Auto-Load Usage (No Restart Required)</h2>
+ * <pre>{@code
+ * @Override
+ * public void onLoad() {
+ *     // Download AND automatically load plugins without restart
+ *     DownloadAndLoadResult result = BukkitHopper.downloadAndLoad(this);
+ *
+ *     if (!result.downloadResult().isSuccess()) {
+ *         getLogger().severe("Some dependencies failed to download!");
+ *     }
+ *
+ *     if (!result.loadResult().isSuccess()) {
+ *         getLogger().warning("Some plugins failed to auto-load, restart may be needed.");
+ *     }
+ * }
+ * }</pre>
  */
 public final class BukkitHopper {
-    
+
     private BukkitHopper() {}
+
+    /**
+     * Result of a combined download and load operation.
+     */
+    public record DownloadAndLoadResult(
+        @NotNull DownloadResult downloadResult,
+        @NotNull PluginLoader.LoadResult loadResult
+    ) {
+        /**
+         * @return true if all downloads succeeded and all plugins were loaded
+         */
+        public boolean isFullySuccessful() {
+            return downloadResult.isSuccess() && loadResult.isSuccess();
+        }
+
+        /**
+         * @return true if no restart is required (nothing was downloaded, or all downloaded plugins were loaded)
+         */
+        public boolean noRestartRequired() {
+            return !downloadResult.requiresRestart() || loadResult.isSuccess();
+        }
+    }
     
     /**
      * Register dependencies for a plugin.
@@ -86,7 +127,108 @@ public final class BukkitHopper {
         
         return Hopper.download(plugin.getName(), pluginsFolder);
     }
-    
+
+    /**
+     * Download all registered dependencies and automatically load them.
+     * <p>
+     * This method downloads dependencies like {@link #download(Plugin)}, but then
+     * attempts to load any newly downloaded plugins at runtime without requiring
+     * a server restart.
+     * <p>
+     * <b>Note:</b> While most plugins can be hot-loaded successfully, some plugins
+     * with complex initialization or class dependencies may still require a restart.
+     *
+     * @param plugin the plugin instance
+     * @return combined download and load result
+     */
+    @NotNull
+    public static DownloadAndLoadResult downloadAndLoad(@NotNull Plugin plugin) {
+        Logger logger = plugin.getLogger();
+        Path pluginsFolder = plugin.getDataFolder().getParentFile().toPath();
+        Path coordinationDir = pluginsFolder.resolve(".hopper");
+
+        // First, download all dependencies
+        DownloadResult downloadResult = download(plugin);
+
+        // If nothing was downloaded, return early with empty load result
+        if (!downloadResult.requiresRestart()) {
+            return new DownloadAndLoadResult(
+                downloadResult,
+                new PluginLoader.LoadResult(List.of(), List.of())
+            );
+        }
+
+        // Collect plugins to load with their names (for better duplicate detection)
+        List<PluginLoader.PluginToLoad> pluginsToLoad = new ArrayList<>();
+        for (DownloadResult.DownloadedDependency dep : downloadResult.downloaded()) {
+            pluginsToLoad.add(new PluginLoader.PluginToLoad(dep.name(), dep.path()));
+        }
+
+        // Log what we're about to do
+        logger.info("[Hopper] Auto-loading " + pluginsToLoad.size() + " downloaded plugin(s)...");
+
+        // Load the downloaded plugins (with coordination lock and name-based duplicate detection)
+        PluginLoader.LoadResult loadResult = PluginLoader.loadAllWithNames(pluginsToLoad, coordinationDir, logger);
+
+        // Log the final result
+        logDownloadAndLoadResult(plugin, downloadResult, loadResult);
+
+        return new DownloadAndLoadResult(downloadResult, loadResult);
+    }
+
+    /**
+     * Log combined download and load results.
+     *
+     * @param plugin the plugin instance
+     * @param downloadResult the download result
+     * @param loadResult the load result
+     */
+    public static void logDownloadAndLoadResult(
+            @NotNull Plugin plugin,
+            @NotNull DownloadResult downloadResult,
+            @NotNull PluginLoader.LoadResult loadResult) {
+
+        Logger logger = plugin.getLogger();
+
+        if (loadResult.hasLoaded()) {
+            logger.info("========================================");
+            logger.info("  HOPPER - Plugins Auto-Loaded");
+            logger.info("========================================");
+
+            for (PluginLoader.LoadedPlugin loaded : loadResult.loaded()) {
+                logger.info("  ✓ " + loaded.name() + " v" + loaded.version());
+            }
+
+            if (!loadResult.failed().isEmpty()) {
+                logger.warning("");
+                logger.warning("  Failed to auto-load:");
+                for (PluginLoader.FailedPlugin failed : loadResult.failed()) {
+                    logger.warning("  ✗ " + failed.path().getFileName() + ": " + failed.error());
+                }
+                logger.warning("");
+                logger.warning("  These may require a server RESTART.");
+            }
+
+            logger.info("========================================");
+        } else if (!downloadResult.downloaded().isEmpty()) {
+            // Downloaded but none could be loaded
+            logger.severe("========================================");
+            logger.severe("  HOPPER - Auto-Load Failed");
+            logger.severe("========================================");
+            logger.severe("  Downloaded plugins could not be auto-loaded.");
+            logger.severe("  Please RESTART the server.");
+            logger.severe("========================================");
+        }
+
+        // Also log any download failures
+        if (!downloadResult.failed().isEmpty()) {
+            logger.severe("[Hopper] Failed to download:");
+            for (DownloadResult.FailedDependency dep : downloadResult.failed()) {
+                logger.severe("  - " + dep.name() + ": " + dep.error());
+            }
+        }
+    }
+
     /**
      * Check if all dependencies are ready.
      *
