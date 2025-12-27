@@ -8,6 +8,7 @@ Hopper downloads plugin dependencies from Hangar, Modrinth, SpigotMC, and GitHub
 
 - **Multiple Sources**: Download from Hangar, Modrinth, Spiget (SpigotMC), GitHub Releases, or direct URLs
 - **Smart Version Resolution**: Supports exact versions, minimum versions, ranges, and update policies
+- **Auto-Load Support**: Automatically load downloaded plugins at runtime—no server restart required!
 - **Non-Standard Versions**: Handles formats like `R4.0.9`, `5.4.0-SNAPSHOT`, `build-123`, `2024.12.20`
 - **Multi-Plugin Coordination**: Multiple plugins can shade Hopper and share the same downloaded dependencies
 - **Lockfile Support**: Reproducible builds with `hopper.lock`
@@ -114,6 +115,42 @@ public class MyPlugin extends JavaPlugin {
     }
 }
 ```
+
+### Auto-Load (No Restart Required)
+
+Use `downloadAndLoad()` to automatically load downloaded plugins at runtime:
+
+```java
+public class MyPlugin extends JavaPlugin {
+
+    public MyPlugin() {
+        BukkitHopper.register(this, deps -> {
+            deps.require(Dependency.hangar("ProtocolLib")
+                .minVersion("5.0.0")
+                .build());
+        });
+    }
+
+    @Override
+    public void onLoad() {
+        // Download AND auto-load in one step
+        var result = BukkitHopper.downloadAndLoad(this);
+
+        if (result.isFullySuccessful()) {
+            getLogger().info("All dependencies ready!");
+        } else if (!result.loadResult().isSuccess()) {
+            getLogger().warning("Some plugins couldn't be auto-loaded.");
+        }
+    }
+
+    @Override
+    public void onEnable() {
+        // Dependencies are available immediately!
+    }
+}
+```
+
+**Note:** While most plugins can be hot-loaded, some plugins with complex initialization may still require a restart. The `loadResult` will indicate which plugins were successfully loaded.
 
 ### Paper Plugin (with Bootstrap)
 
@@ -314,6 +351,8 @@ Hopper handles various version formats:
 ### Platform Modules
 
 - `BukkitHopper` - Bukkit/Spigot convenience wrapper
+- `BukkitHopper.DownloadAndLoadResult` - Combined download + auto-load result
+- `PluginLoader` - Runtime plugin loading utility
 - `HopperBootstrap` - Paper bootstrap support
 
 ## License
