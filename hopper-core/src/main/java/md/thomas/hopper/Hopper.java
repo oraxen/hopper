@@ -53,7 +53,9 @@ public final class Hopper {
     private Hopper(Builder builder) {
         this.pluginsFolder = builder.pluginsFolder;
         this.coordinationDir = builder.pluginsFolder.resolve(".hopper");
-        this.logger = builder.logger != null ? builder.logger : Logger.NOOP;
+        // Apply log level filter to the logger
+        Logger baseLogger = builder.logger != null ? builder.logger : Logger.NOOP;
+        this.logger = Logger.withLevel(baseLogger, builder.logLevel);
         this.sources = createSources();
     }
     
@@ -142,7 +144,21 @@ public final class Hopper {
      * @return download result
      */
     public static DownloadResult download(@NotNull String pluginName, @Nullable Path pluginsFolder, @Nullable Logger logger) {
-        Logger log = logger != null ? logger : Logger.NOOP;
+        return download(pluginName, pluginsFolder, logger, LogLevel.NORMAL);
+    }
+
+    /**
+     * Download all registered dependencies for a plugin with explicit plugins folder, logger, and log level.
+     *
+     * @param pluginName the plugin name
+     * @param pluginsFolder the plugins folder (null to auto-detect)
+     * @param logger the logger to use (null for NOOP)
+     * @param logLevel the verbosity level (VERBOSE, NORMAL, QUIET, SILENT)
+     * @return download result
+     */
+    public static DownloadResult download(@NotNull String pluginName, @Nullable Path pluginsFolder,
+                                          @Nullable Logger logger, @NotNull LogLevel logLevel) {
+        Logger log = logger != null ? Logger.withLevel(logger, logLevel) : Logger.NOOP;
 
         PluginRegistration registration = registrations.get(pluginName);
         if (registration == null) {
@@ -157,7 +173,7 @@ public final class Hopper {
             return new DownloadResult.Builder().build();
         }
 
-        log.info("Processing " + registration.dependencies().size() + " dependency(ies) for " + pluginName);
+        log.verbose("Processing " + registration.dependencies().size() + " dependency(ies) for " + pluginName);
 
         // Auto-detect plugins folder if not provided
         if (pluginsFolder == null) {
@@ -167,6 +183,7 @@ public final class Hopper {
         Hopper hopper = builder()
             .pluginsFolder(pluginsFolder)
             .logger(logger)
+            .logLevel(logLevel)
             .build();
 
         return hopper.downloadDependencies(pluginName, registration.dependencies());
@@ -255,7 +272,7 @@ public final class Hopper {
     private void processDependency(Dependency dep, Registry registry, Lockfile lockfile, 
                                    DownloadResult.Builder result) {
         String depName = dep.name();
-        logger.info("Processing dependency: " + depName);
+        logger.verbose("Processing dependency: " + depName);
         
         // Get merged constraint from registry (combines all plugins' constraints)
         VersionConstraint mergedConstraint = registry.getMergedConstraint(depName);
@@ -275,7 +292,7 @@ public final class Hopper {
                 // Check if file exists
                 Path lockedPath = pluginsFolder.resolve(lockedEntry.fileName());
                 if (Files.exists(lockedPath)) {
-                    logger.info("  Using locked version: " + lockedVersion);
+                    logger.verbose("  Using locked version: " + lockedVersion);
                     result.addExisting(depName, lockedVersion, lockedPath);
                     return;
                 }
@@ -289,7 +306,7 @@ public final class Hopper {
         }
         
         // Fetch available versions
-        logger.info("  Fetching versions from " + dep.sourceType() + "...");
+        logger.verbose("  Fetching versions from " + dep.sourceType() + "...");
         List<Version> versions = source.fetchVersions(dep);
         if (versions.isEmpty()) {
             throw new DependencyException(depName, "No versions found");
@@ -308,7 +325,7 @@ public final class Hopper {
             }
         }
         
-        logger.info("  Selected version: " + selected);
+        logger.verbose("  Selected version: " + selected);
         
         // Check if already downloaded
         DependencySource.ResolvedDependency resolved = source.resolve(dep, selected);
@@ -318,12 +335,12 @@ public final class Hopper {
             // Verify checksum if provided
             if (resolved.checksum() != null && resolved.checksumType() != null) {
                 if (md.thomas.hopper.util.Checksum.verify(targetPath, resolved.checksum(), resolved.checksumType())) {
-                    logger.info("  Already downloaded with matching checksum");
+                    logger.verbose("  Already downloaded with matching checksum");
                     result.addExisting(depName, selected, targetPath);
                     lockfile.updateEntry(depName, resolved);
                     return;
                 } else {
-                    logger.warn("  Checksum mismatch, re-downloading");
+                    logger.verbose("  Checksum mismatch, re-downloading");
                     try {
                         Files.deleteIfExists(targetPath);
                     } catch (IOException e) {
@@ -331,7 +348,7 @@ public final class Hopper {
                     }
                 }
             } else {
-                logger.info("  Already downloaded");
+                logger.verbose("  Already downloaded");
                 result.addExisting(depName, selected, targetPath);
                 lockfile.updateEntry(depName, resolved);
                 return;
@@ -339,7 +356,8 @@ public final class Hopper {
         }
 
         // Download
-        logger.info("  Downloading from: " + resolved.downloadUrl());
+        logger.normal("[Hopper] Downloading " + depName + " " + selected + "...");
+        logger.verbose("  Downloading from: " + resolved.downloadUrl());
         md.thomas.hopper.util.HttpClient.download(resolved.downloadUrl(), targetPath);
 
         // Verify checksum
@@ -354,8 +372,8 @@ public final class Hopper {
                     resolved.checksumType().algorithm() + ")");
             }
         }
-        
-        logger.info("  Downloaded successfully: " + resolved.fileName());
+
+        logger.verbose("  Downloaded successfully: " + resolved.fileName());
         result.addDownloaded(depName, selected, targetPath);
         lockfile.updateEntry(depName, resolved);
     }
@@ -363,19 +381,20 @@ public final class Hopper {
     private void handleFailure(Dependency dep, String error, DownloadResult.Builder result) {
         String depName = dep.name();
         FailurePolicy policy = dep.failurePolicy();
-        
+
         switch (policy) {
             case FAIL:
                 result.addFailed(depName, error, policy);
-                logger.error("  FAILED: " + error);
+                // Errors are always logged (they're important regardless of verbosity)
+                logger.error("[Hopper] " + depName + " FAILED: " + error);
                 break;
             case WARN_USE_LATEST:
                 result.addFailed(depName, error, policy);
-                logger.warn("  WARNING: " + error);
+                logger.warn("[Hopper] " + depName + " WARNING: " + error);
                 break;
             case WARN_SKIP:
                 result.addSkipped(depName, error);
-                logger.warn("  SKIPPED: " + error);
+                logger.warn("[Hopper] " + depName + " SKIPPED: " + error);
                 break;
         }
     }
@@ -403,19 +422,82 @@ public final class Hopper {
     
     /**
      * Logger interface for Hopper messages.
+     * <p>
+     * Supports both message severity levels (INFO, WARN, ERROR) and verbosity levels
+     * (VERBOSE, NORMAL, QUIET, SILENT) for controlling output detail.
      */
     @FunctionalInterface
     public interface Logger {
+        /**
+         * Log a message at the given severity level.
+         * Messages logged via this method are treated as NORMAL verbosity.
+         */
         void log(Level level, String message);
-        
+
+        /**
+         * Log a message at the given severity level and verbosity.
+         *
+         * @param level the severity level (INFO, WARN, ERROR)
+         * @param verbosity the minimum verbosity level required to show this message
+         * @param message the message to log
+         */
+        default void log(Level level, LogLevel verbosity, String message) {
+            // Default implementation ignores verbosity for backwards compatibility
+            log(level, message);
+        }
+
         default void info(String message) { log(Level.INFO, message); }
         default void warn(String message) { log(Level.WARN, message); }
         default void error(String message) { log(Level.ERROR, message); }
-        
+
+        /**
+         * Log an info message only if verbosity allows VERBOSE level.
+         */
+        default void verbose(String message) { log(Level.INFO, LogLevel.VERBOSE, message); }
+
+        /**
+         * Log an info message only if verbosity allows NORMAL level.
+         */
+        default void normal(String message) { log(Level.INFO, LogLevel.NORMAL, message); }
+
+        /**
+         * Log an info message only if verbosity allows QUIET level.
+         */
+        default void quiet(String message) { log(Level.INFO, LogLevel.QUIET, message); }
+
         enum Level { INFO, WARN, ERROR }
-        
+
         Logger NOOP = (level, message) -> {};
         Logger CONSOLE = (level, message) -> System.out.println("[Hopper/" + level + "] " + message);
+
+        /**
+         * Wrap a logger with a verbosity filter.
+         *
+         * @param delegate the underlying logger
+         * @param logLevel the verbosity level to apply
+         * @return a new logger that respects the verbosity level
+         */
+        static Logger withLevel(Logger delegate, LogLevel logLevel) {
+            if (logLevel == LogLevel.SILENT) {
+                return NOOP;
+            }
+            return new Logger() {
+                @Override
+                public void log(Level level, String message) {
+                    // Default severity-only logs are treated as NORMAL verbosity
+                    if (logLevel.allows(LogLevel.NORMAL)) {
+                        delegate.log(level, message);
+                    }
+                }
+
+                @Override
+                public void log(Level level, LogLevel verbosity, String message) {
+                    if (logLevel.allows(verbosity)) {
+                        delegate.log(level, message);
+                    }
+                }
+            };
+        }
     }
     
     private record PluginRegistration(String name, List<Dependency> dependencies) {}
@@ -426,9 +508,10 @@ public final class Hopper {
     public static final class Builder {
         private Path pluginsFolder = Path.of("plugins");
         private Logger logger;
-        
+        private LogLevel logLevel = LogLevel.NORMAL;
+
         private Builder() {}
-        
+
         /**
          * Set the plugins folder path.
          */
@@ -436,14 +519,14 @@ public final class Hopper {
             this.pluginsFolder = Objects.requireNonNull(path);
             return this;
         }
-        
+
         /**
          * Set the plugins folder path.
          */
         public Builder pluginsFolder(java.io.File file) {
             return pluginsFolder(file.toPath());
         }
-        
+
         /**
          * Set the logger for Hopper messages.
          */
@@ -451,7 +534,26 @@ public final class Hopper {
             this.logger = logger;
             return this;
         }
-        
+
+        /**
+         * Set the log verbosity level.
+         * <p>
+         * Controls how much output Hopper produces:
+         * <ul>
+         *   <li>VERBOSE - Full output (all processing steps, downloads, summaries)</li>
+         *   <li>NORMAL (default) - Download progress and final summary</li>
+         *   <li>QUIET - Only final result (which plugins were loaded)</li>
+         *   <li>SILENT - No output at all</li>
+         * </ul>
+         *
+         * @param level the verbosity level
+         * @return this builder for chaining
+         */
+        public Builder logLevel(LogLevel level) {
+            this.logLevel = Objects.requireNonNull(level);
+            return this;
+        }
+
         /**
          * Build the Hopper instance.
          */

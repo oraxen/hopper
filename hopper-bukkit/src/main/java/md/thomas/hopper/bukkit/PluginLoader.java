@@ -1,5 +1,7 @@
 package md.thomas.hopper.bukkit;
 
+import md.thomas.hopper.Hopper;
+import md.thomas.hopper.LogLevel;
 import md.thomas.hopper.coordination.HopperCoordinator;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.InvalidDescriptionException;
@@ -119,19 +121,35 @@ public final class PluginLoader {
      */
     @Nullable
     public static Plugin load(@NotNull Path pluginPath, @Nullable String expectedName, @Nullable Logger logger) {
+        return load(pluginPath, expectedName, logger, LogLevel.NORMAL);
+    }
+
+    /**
+     * Load a single plugin JAR file with expected name, logging, and log level.
+     * <p>
+     * If the expected plugin name is provided and a plugin with that name is already
+     * loaded, returns the existing plugin without attempting to load again.
+     *
+     * @param pluginPath the path to the plugin JAR
+     * @param expectedName the expected plugin name (for duplicate detection), or null
+     * @param logger optional logger for status messages
+     * @param logLevel the verbosity level
+     * @return the loaded Plugin instance, or null if loading failed
+     */
+    @Nullable
+    public static Plugin load(@NotNull Path pluginPath, @Nullable String expectedName,
+                              @Nullable Logger logger, @NotNull LogLevel logLevel) {
         File pluginFile = pluginPath.toFile();
 
+        Hopper.Logger hopperLogger = createHopperLogger(logger, logLevel);
+
         if (!pluginFile.exists()) {
-            if (logger != null) {
-                logger.warning("[Hopper] Plugin file not found: " + pluginPath);
-            }
+            hopperLogger.warn("[Hopper] Plugin file not found: " + pluginPath);
             return null;
         }
 
         if (!pluginFile.getName().endsWith(".jar")) {
-            if (logger != null) {
-                logger.warning("[Hopper] Not a JAR file: " + pluginPath);
-            }
+            hopperLogger.warn("[Hopper] Not a JAR file: " + pluginPath);
             return null;
         }
 
@@ -141,9 +159,7 @@ public final class PluginLoader {
         if (expectedName != null) {
             Plugin existing = pm.getPlugin(expectedName);
             if (existing != null) {
-                if (logger != null) {
-                    logger.info("[Hopper] Plugin already loaded: " + existing.getName() + " v" + existing.getDescription().getVersion());
-                }
+                hopperLogger.verbose("[Hopper] Plugin already loaded: " + existing.getName() + " v" + existing.getDescription().getVersion());
                 return existing;
             }
         }
@@ -153,9 +169,7 @@ public final class PluginLoader {
             for (Plugin p : pm.getPlugins()) {
                 File pFile = getPluginFile(p);
                 if (pFile != null && pFile.getAbsolutePath().equals(pluginFile.getAbsolutePath())) {
-                    if (logger != null) {
-                        logger.info("[Hopper] Plugin already loaded: " + p.getName());
-                    }
+                    hopperLogger.verbose("[Hopper] Plugin already loaded: " + p.getName());
                     return p;
                 }
             }
@@ -164,9 +178,7 @@ public final class PluginLoader {
         }
 
         try {
-            if (logger != null) {
-                logger.info("[Hopper] Loading plugin: " + pluginFile.getName());
-            }
+            hopperLogger.verbose("[Hopper] Loading plugin: " + pluginFile.getName());
 
             Plugin plugin = pm.loadPlugin(pluginFile);
             if (plugin != null) {
@@ -176,9 +188,7 @@ public final class PluginLoader {
                 // Enable the plugin
                 pm.enablePlugin(plugin);
 
-                if (logger != null) {
-                    logger.info("[Hopper] Successfully loaded: " + plugin.getName() + " v" + plugin.getDescription().getVersion());
-                }
+                hopperLogger.verbose("[Hopper] Successfully loaded: " + plugin.getName() + " v" + plugin.getDescription().getVersion());
                 return plugin;
             }
         } catch (InvalidPluginException e) {
@@ -267,29 +277,51 @@ public final class PluginLoader {
     public static LoadResult loadAllWithNames(@NotNull List<PluginToLoad> plugins,
                                                @Nullable Path coordinationDir,
                                                @Nullable Logger logger) {
+        return loadAllWithNames(plugins, coordinationDir, logger, LogLevel.NORMAL);
+    }
+
+    /**
+     * Load multiple plugins with their expected names, using file-based coordination and log level.
+     * <p>
+     * This method acquires a file lock before loading to prevent race conditions when
+     * multiple plugins using Hopper try to load the same dependency simultaneously.
+     *
+     * @param plugins the plugins to load with their names and paths
+     * @param coordinationDir the .hopper directory for file locking (null to skip coordination)
+     * @param logger optional logger for status messages
+     * @param logLevel the verbosity level
+     * @return the load result containing loaded and failed plugins
+     */
+    @NotNull
+    public static LoadResult loadAllWithNames(@NotNull List<PluginToLoad> plugins,
+                                               @Nullable Path coordinationDir,
+                                               @Nullable Logger logger,
+                                               @NotNull LogLevel logLevel) {
         if (coordinationDir == null) {
-            return loadAllWithNamesInternal(plugins, logger);
+            return loadAllWithNamesInternal(plugins, logger, logLevel);
         }
+
+        Hopper.Logger hopperLogger = createHopperLogger(logger, logLevel);
 
         // Use file-based coordination to prevent race conditions
         try (HopperCoordinator coordinator = HopperCoordinator.acquire(coordinationDir)) {
-            return loadAllWithNamesInternal(plugins, logger);
+            return loadAllWithNamesInternal(plugins, logger, logLevel);
         } catch (IOException e) {
-            if (logger != null) {
-                logger.log(Level.WARNING, "[Hopper] Failed to acquire coordination lock, proceeding without lock", e);
-            }
+            hopperLogger.warn("[Hopper] Failed to acquire coordination lock, proceeding without lock");
             // Fall back to uncoordinated loading
-            return loadAllWithNamesInternal(plugins, logger);
+            return loadAllWithNamesInternal(plugins, logger, logLevel);
         }
     }
 
     @NotNull
-    private static LoadResult loadAllWithNamesInternal(@NotNull List<PluginToLoad> plugins, @Nullable Logger logger) {
+    private static LoadResult loadAllWithNamesInternal(@NotNull List<PluginToLoad> plugins,
+                                                        @Nullable Logger logger,
+                                                        @NotNull LogLevel logLevel) {
         List<LoadedPlugin> loaded = new ArrayList<>();
         List<FailedPlugin> failed = new ArrayList<>();
 
         for (PluginToLoad toLoad : plugins) {
-            Plugin plugin = load(toLoad.path(), toLoad.name(), logger);
+            Plugin plugin = load(toLoad.path(), toLoad.name(), logger, logLevel);
             if (plugin != null) {
                 loaded.add(new LoadedPlugin(
                     plugin.getName(),
@@ -345,5 +377,28 @@ public final class PluginLoader {
         }
 
         return null;
+    }
+
+    /**
+     * Create a Hopper.Logger that wraps a java.util.logging.Logger with log level filtering.
+     */
+    private static Hopper.Logger createHopperLogger(@Nullable Logger logger, @NotNull LogLevel logLevel) {
+        if (logger == null || logLevel == LogLevel.SILENT) {
+            return Hopper.Logger.NOOP;
+        }
+        Hopper.Logger baseLogger = (level, message) -> {
+            switch (level) {
+                case INFO:
+                    logger.info(message);
+                    break;
+                case WARN:
+                    logger.warning(message);
+                    break;
+                case ERROR:
+                    logger.severe(message);
+                    break;
+            }
+        };
+        return Hopper.Logger.withLevel(baseLogger, logLevel);
     }
 }

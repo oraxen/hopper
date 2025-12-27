@@ -4,6 +4,7 @@ import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyCollector;
 import md.thomas.hopper.DownloadResult;
 import md.thomas.hopper.Hopper;
+import md.thomas.hopper.LogLevel;
 import md.thomas.hopper.MinecraftVersion;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
@@ -187,19 +188,35 @@ public final class BukkitHopper {
      */
     @NotNull
     public static DownloadResult download(@NotNull Plugin plugin) {
+        return download(plugin, LogLevel.NORMAL);
+    }
+
+    /**
+     * Download all registered dependencies with specified log level.
+     * Call this in your plugin's onLoad() method.
+     * <p>
+     * This method automatically detects and sets the server's Minecraft version
+     * for dependency filtering.
+     *
+     * @param plugin the plugin instance
+     * @param logLevel the verbosity level (VERBOSE, NORMAL, QUIET, SILENT)
+     * @return download result
+     */
+    @NotNull
+    public static DownloadResult download(@NotNull Plugin plugin, @NotNull LogLevel logLevel) {
         Path pluginsFolder = plugin.getDataFolder().getParentFile().toPath();
 
         // Auto-detect Minecraft version for filtering
         String mcVersion = detectMinecraftVersion();
 
-        // Create logger adapter
-        Hopper.Logger logger = createLogger(plugin.getLogger());
+        // Create logger adapter with log level
+        Hopper.Logger logger = createLogger(plugin.getLogger(), logLevel);
 
         if (mcVersion != null) {
-            logger.info("[Hopper] Detected Minecraft version: " + mcVersion);
+            logger.verbose("[Hopper] Detected Minecraft version: " + mcVersion);
         }
 
-        return Hopper.download(plugin.getName(), pluginsFolder, logger);
+        return Hopper.download(plugin.getName(), pluginsFolder, logger, logLevel);
     }
 
     /**
@@ -217,12 +234,32 @@ public final class BukkitHopper {
      */
     @NotNull
     public static DownloadAndLoadResult downloadAndLoad(@NotNull Plugin plugin) {
+        return downloadAndLoad(plugin, LogLevel.NORMAL);
+    }
+
+    /**
+     * Download all registered dependencies and automatically load them with specified log level.
+     * <p>
+     * This method downloads dependencies like {@link #download(Plugin, LogLevel)}, but then
+     * attempts to load any newly downloaded plugins at runtime without requiring
+     * a server restart.
+     * <p>
+     * <b>Note:</b> While most plugins can be hot-loaded successfully, some plugins
+     * with complex initialization or class dependencies may still require a restart.
+     *
+     * @param plugin the plugin instance
+     * @param logLevel the verbosity level (VERBOSE, NORMAL, QUIET, SILENT)
+     * @return combined download and load result
+     */
+    @NotNull
+    public static DownloadAndLoadResult downloadAndLoad(@NotNull Plugin plugin, @NotNull LogLevel logLevel) {
         Logger logger = plugin.getLogger();
+        Hopper.Logger hopperLogger = createLogger(logger, logLevel);
         Path pluginsFolder = plugin.getDataFolder().getParentFile().toPath();
         Path coordinationDir = pluginsFolder.resolve(".hopper");
 
         // First, download all dependencies
-        DownloadResult downloadResult = download(plugin);
+        DownloadResult downloadResult = download(plugin, logLevel);
 
         // If nothing was downloaded, return early with empty load result
         if (!downloadResult.requiresRestart()) {
@@ -238,14 +275,14 @@ public final class BukkitHopper {
             pluginsToLoad.add(new PluginLoader.PluginToLoad(dep.name(), dep.path()));
         }
 
-        // Log what we're about to do
-        logger.info("[Hopper] Auto-loading " + pluginsToLoad.size() + " downloaded plugin(s)...");
+        // Log what we're about to do (only in VERBOSE mode for the count message)
+        hopperLogger.verbose("[Hopper] Auto-loading " + pluginsToLoad.size() + " downloaded plugin(s)...");
 
         // Load the downloaded plugins (with coordination lock and name-based duplicate detection)
-        PluginLoader.LoadResult loadResult = PluginLoader.loadAllWithNames(pluginsToLoad, coordinationDir, logger);
+        PluginLoader.LoadResult loadResult = PluginLoader.loadAllWithNames(pluginsToLoad, coordinationDir, logger, logLevel);
 
         // Log the final result
-        logDownloadAndLoadResult(plugin, downloadResult, loadResult);
+        logDownloadAndLoadResult(plugin, downloadResult, loadResult, logLevel);
 
         return new DownloadAndLoadResult(downloadResult, loadResult);
     }
@@ -261,31 +298,63 @@ public final class BukkitHopper {
             @NotNull Plugin plugin,
             @NotNull DownloadResult downloadResult,
             @NotNull PluginLoader.LoadResult loadResult) {
+        logDownloadAndLoadResult(plugin, downloadResult, loadResult, LogLevel.NORMAL);
+    }
+
+    /**
+     * Log combined download and load results with specified log level.
+     *
+     * @param plugin the plugin instance
+     * @param downloadResult the download result
+     * @param loadResult the load result
+     * @param logLevel the verbosity level
+     */
+    public static void logDownloadAndLoadResult(
+            @NotNull Plugin plugin,
+            @NotNull DownloadResult downloadResult,
+            @NotNull PluginLoader.LoadResult loadResult,
+            @NotNull LogLevel logLevel) {
+
+        if (logLevel == LogLevel.SILENT) {
+            return;
+        }
 
         Logger logger = plugin.getLogger();
 
         if (loadResult.hasLoaded()) {
-            logger.info("========================================");
-            logger.info("  HOPPER - Plugins Auto-Loaded");
-            logger.info("========================================");
-
-            for (PluginLoader.LoadedPlugin loaded : loadResult.loaded()) {
-                logger.info("  ✓ " + loaded.name() + " v" + loaded.version());
-            }
-
-            if (!loadResult.failed().isEmpty()) {
-                logger.warning("");
-                logger.warning("  Failed to auto-load:");
-                for (PluginLoader.FailedPlugin failed : loadResult.failed()) {
-                    logger.warning("  ✗ " + failed.path().getFileName() + ": " + failed.error());
+            // QUIET mode: Just show the summary line
+            if (logLevel == LogLevel.QUIET) {
+                StringBuilder summary = new StringBuilder("[Hopper] Loaded: ");
+                List<PluginLoader.LoadedPlugin> loaded = loadResult.loaded();
+                for (int i = 0; i < loaded.size(); i++) {
+                    if (i > 0) summary.append(", ");
+                    summary.append(loaded.get(i).name()).append(" ").append(loaded.get(i).version());
                 }
-                logger.warning("");
-                logger.warning("  These may require a server RESTART.");
-            }
+                logger.info(summary.toString());
+            } else {
+                // NORMAL and VERBOSE: Show the formatted box
+                logger.info("========================================");
+                logger.info("  HOPPER - Plugins Auto-Loaded");
+                logger.info("========================================");
 
-            logger.info("========================================");
+                for (PluginLoader.LoadedPlugin loaded : loadResult.loaded()) {
+                    logger.info("  ✓ " + loaded.name() + " v" + loaded.version());
+                }
+
+                if (!loadResult.failed().isEmpty()) {
+                    logger.warning("");
+                    logger.warning("  Failed to auto-load:");
+                    for (PluginLoader.FailedPlugin failed : loadResult.failed()) {
+                        logger.warning("  ✗ " + failed.path().getFileName() + ": " + failed.error());
+                    }
+                    logger.warning("");
+                    logger.warning("  These may require a server RESTART.");
+                }
+
+                logger.info("========================================");
+            }
         } else if (!downloadResult.downloaded().isEmpty()) {
-            // Downloaded but none could be loaded
+            // Downloaded but none could be loaded - always show this error
             logger.severe("========================================");
             logger.severe("  HOPPER - Auto-Load Failed");
             logger.severe("========================================");
@@ -294,7 +363,7 @@ public final class BukkitHopper {
             logger.severe("========================================");
         }
 
-        // Also log any download failures
+        // Also log any download failures (errors are always shown)
         if (!downloadResult.failed().isEmpty()) {
             logger.severe("[Hopper] Failed to download:");
             for (DownloadResult.FailedDependency dep : downloadResult.failed()) {
@@ -333,34 +402,50 @@ public final class BukkitHopper {
      * @param result the download result
      */
     public static void logResult(@NotNull Plugin plugin, @NotNull DownloadResult result) {
+        logResult(plugin, result, LogLevel.NORMAL);
+    }
+
+    /**
+     * Log download results to the plugin logger with specified log level.
+     *
+     * @param plugin the plugin instance
+     * @param result the download result
+     * @param logLevel the verbosity level
+     */
+    public static void logResult(@NotNull Plugin plugin, @NotNull DownloadResult result, @NotNull LogLevel logLevel) {
+        if (logLevel == LogLevel.SILENT) {
+            return;
+        }
+
         Logger logger = plugin.getLogger();
-        
+
         if (result.requiresRestart()) {
             logger.severe("========================================");
             logger.severe("  HOPPER - Dependencies Downloaded");
             logger.severe("========================================");
-            
+
             for (DownloadResult.DownloadedDependency dep : result.downloaded()) {
                 logger.severe("  + " + dep.name() + " v" + dep.version());
             }
-            
+
             logger.severe("");
             logger.severe("  Please RESTART the server to load them.");
             logger.severe("========================================");
-        } else if (!result.existing().isEmpty()) {
+        } else if (!result.existing().isEmpty() && logLevel != LogLevel.QUIET) {
+            // Only show "all satisfied" in NORMAL and VERBOSE modes
             logger.info("[Hopper] All dependencies satisfied:");
             for (DownloadResult.ExistingDependency dep : result.existing()) {
                 logger.info("  - " + dep.name() + " v" + dep.version());
             }
         }
-        
+
         if (!result.skipped().isEmpty()) {
             logger.warning("[Hopper] Skipped optional dependencies:");
             for (DownloadResult.SkippedDependency dep : result.skipped()) {
                 logger.warning("  - " + dep.name() + ": " + dep.reason());
             }
         }
-        
+
         if (!result.failed().isEmpty()) {
             logger.severe("[Hopper] Failed dependencies:");
             for (DownloadResult.FailedDependency dep : result.failed()) {
@@ -368,20 +453,28 @@ public final class BukkitHopper {
             }
         }
     }
-    
+
     private static Hopper.Logger createLogger(Logger bukkitLogger) {
-        return (level, message) -> {
-            switch (level) {
-                case INFO:
-                    bukkitLogger.info(message);
-                    break;
-                case WARN:
-                    bukkitLogger.warning(message);
-                    break;
-                case ERROR:
-                    bukkitLogger.severe(message);
-                    break;
+        return createLogger(bukkitLogger, LogLevel.NORMAL);
+    }
+
+    private static Hopper.Logger createLogger(Logger bukkitLogger, LogLevel logLevel) {
+        Hopper.Logger baseLogger = new Hopper.Logger() {
+            @Override
+            public void log(Hopper.Logger.Level level, String message) {
+                switch (level) {
+                    case INFO:
+                        bukkitLogger.info(message);
+                        break;
+                    case WARN:
+                        bukkitLogger.warning(message);
+                        break;
+                    case ERROR:
+                        bukkitLogger.severe(message);
+                        break;
+                }
             }
         };
+        return Hopper.Logger.withLevel(baseLogger, logLevel);
     }
 }
