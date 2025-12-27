@@ -157,7 +157,6 @@ public final class GitHubSource implements DependencySource {
                 dependency.name(),
                 version,
                 downloadUrl,
-                null, // GitHub doesn't provide checksums in API
                 dependency.fileName() != null ? dependency.fileName() : fileName
             );
         } catch (DependencyException e) {

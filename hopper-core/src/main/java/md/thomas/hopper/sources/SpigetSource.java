@@ -136,7 +136,6 @@ public final class SpigetSource implements DependencySource {
                 dependency.name() != null ? dependency.name() : name,
                 version,
                 downloadUrl,
-                null, // Spiget doesn't provide checksums
                 fileName
             );
         } catch (DependencyException e) {

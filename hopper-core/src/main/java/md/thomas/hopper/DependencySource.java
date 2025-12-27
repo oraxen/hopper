@@ -42,7 +42,43 @@ public interface DependencySource {
         @NotNull String name,
         @NotNull Version version,
         @NotNull String downloadUrl,
-        @Nullable String sha256,
+        @Nullable String checksum,
+        @Nullable ChecksumType checksumType,
         @NotNull String fileName
-    ) {}
+    ) {
+        /**
+         * Convenience constructor for no checksum.
+         */
+        public ResolvedDependency(
+            @NotNull String name,
+            @NotNull Version version,
+            @NotNull String downloadUrl,
+            @NotNull String fileName
+        ) {
+            this(name, version, downloadUrl, null, null, fileName);
+        }
+    }
+
+    /**
+     * Supported checksum algorithms.
+     */
+    enum ChecksumType {
+        SHA256("SHA-256"),
+        SHA512("SHA-512"),
+        SHA1("SHA-1"),
+        MD5("MD5");
+
+        private final String algorithm;
+
+        ChecksumType(String algorithm) {
+            this.algorithm = algorithm;
+        }
+
+        /**
+         * @return the Java Security algorithm name
+         */
+        public String algorithm() {
+            return algorithm;
+        }
+    }
 }

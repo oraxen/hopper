@@ -3,6 +3,7 @@ package md.thomas.hopper.sources;
 import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyException;
 import md.thomas.hopper.DependencySource;
+import md.thomas.hopper.DependencySource.ChecksumType;
 import md.thomas.hopper.version.Version;
 import org.jetbrains.annotations.NotNull;
 
@@ -60,11 +61,13 @@ public final class UrlSource implements DependencySource {
                 }
             }
             
+            String sha256 = dependency.sha256();
             return new ResolvedDependency(
                 dependency.name(),
                 version,
                 url,
-                dependency.sha256(),
+                sha256,
+                sha256 != null ? ChecksumType.SHA256 : null,
                 fileName
             );
         } catch (Exception e) {

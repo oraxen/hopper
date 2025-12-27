@@ -3,6 +3,8 @@ package md.thomas.hopper.sources;
 import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyException;
 import md.thomas.hopper.DependencySource;
+import md.thomas.hopper.DependencySource.ChecksumType;
+import md.thomas.hopper.Platform;
 import md.thomas.hopper.util.HttpClient;
 import md.thomas.hopper.util.JsonParser;
 import md.thomas.hopper.version.Version;
@@ -30,13 +32,14 @@ public final class HangarSource implements DependencySource {
     public @NotNull List<Version> fetchVersions(@NotNull Dependency dependency) throws DependencyException {
         String slug = dependency.identifier();
         String mcVersion = dependency.minecraftVersion();
-        
+        Platform platform = dependency.platform().resolve();
+
         try {
             // Build URL with query parameters
             StringBuilder url = new StringBuilder(API_BASE)
                 .append("/projects/").append(slug).append("/versions")
-                .append("?limit=25&platform=PAPER");
-            
+                .append("?limit=25&platform=").append(platform.hangarPlatform());
+
             if (mcVersion != null) {
                 url.append("&platformVersion=").append(mcVersion);
             }
@@ -75,44 +78,46 @@ public final class HangarSource implements DependencySource {
     }
     
     @Override
-    public @NotNull ResolvedDependency resolve(@NotNull Dependency dependency, @NotNull Version version) 
+    public @NotNull ResolvedDependency resolve(@NotNull Dependency dependency, @NotNull Version version)
             throws DependencyException {
         String slug = dependency.identifier();
-        
+        Platform platform = dependency.platform().resolve();
+        String hangarPlatform = platform.hangarPlatform();
+
         try {
             // Fetch version details
             String url = API_BASE + "/projects/" + slug + "/versions/" + version.raw();
             String response = HttpClient.get(url);
             Map<String, Object> json = JsonParser.parseObject(response);
-            
+
             if (json == null) {
                 throw new DependencyException(slug, "Failed to parse Hangar version response");
             }
-            
+
             // Get download info
             @SuppressWarnings("unchecked")
             Map<String, Object> downloads = (Map<String, Object>) json.get("downloads");
             if (downloads == null || downloads.isEmpty()) {
                 throw new DependencyException(slug, "No downloads found for version " + version);
             }
-            
-            // Prefer PAPER platform
+
+            // Try platform-specific download, fall back to first available
             @SuppressWarnings("unchecked")
-            Map<String, Object> paperDownload = (Map<String, Object>) downloads.get("PAPER");
-            if (paperDownload == null) {
+            Map<String, Object> platformDownload = (Map<String, Object>) downloads.get(hangarPlatform);
+            if (platformDownload == null) {
                 // Fall back to first available
-                paperDownload = (Map<String, Object>) downloads.values().iterator().next();
+                platformDownload = (Map<String, Object>) downloads.values().iterator().next();
             }
-            
+
             @SuppressWarnings("unchecked")
-            Map<String, Object> fileInfo = (Map<String, Object>) paperDownload.get("fileInfo");
+            Map<String, Object> fileInfo = (Map<String, Object>) platformDownload.get("fileInfo");
             String fileName = fileInfo != null ? (String) fileInfo.get("name") : null;
             String sha256 = fileInfo != null ? (String) fileInfo.get("sha256Hash") : null;
-            
+
             // Build download URL
-            String downloadUrl = (String) paperDownload.get("downloadUrl");
+            String downloadUrl = (String) platformDownload.get("downloadUrl");
             if (downloadUrl == null) {
-                downloadUrl = API_BASE + "/projects/" + slug + "/versions/" + version.raw() + "/PAPER/download";
+                downloadUrl = API_BASE + "/projects/" + slug + "/versions/" + version.raw() + "/" + hangarPlatform + "/download";
             } else if (!downloadUrl.startsWith("http")) {
                 downloadUrl = "https://hangar.papermc.io" + downloadUrl;
             }
@@ -126,6 +131,7 @@ public final class HangarSource implements DependencySource {
                 version,
                 downloadUrl,
                 sha256,
+                sha256 != null ? ChecksumType.SHA256 : null,
                 dependency.fileName() != null ? dependency.fileName() : fileName
             );
         } catch (DependencyException e) {
