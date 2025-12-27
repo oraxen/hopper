@@ -87,10 +87,10 @@ public final class BukkitHopper {
         }
 
         /**
-         * @return true if no restart is required (all downloaded plugins were loaded)
+         * @return true if no restart is required (nothing was downloaded, or all downloaded plugins were loaded)
          */
         public boolean noRestartRequired() {
-            return !downloadResult.requiresRestart() || loadResult.hasLoaded();
+            return !downloadResult.requiresRestart() || loadResult.isSuccess();
         }
     }
     
