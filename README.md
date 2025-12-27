@@ -2,7 +2,7 @@
 
 **Plugin Dependency Loader for Minecraft Servers**
 
-Hopper downloads plugin dependencies from Hangar, Modrinth, SpigotMC, and GitHub Releases at runtime—so you don't need to shade them.
+Hopper downloads plugin dependencies from Hangar, Modrinth, SpigotMC, and GitHub Releases at runtime so you don't need to shade them.
 
 ## Features
 
