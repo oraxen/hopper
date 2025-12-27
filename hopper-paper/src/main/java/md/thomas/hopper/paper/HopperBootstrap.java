@@ -4,6 +4,7 @@ import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyCollector;
 import md.thomas.hopper.DownloadResult;
 import md.thomas.hopper.Hopper;
+import md.thomas.hopper.LogLevel;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Path;
@@ -47,12 +48,13 @@ import java.util.logging.Logger;
  * }</pre>
  */
 public final class HopperBootstrap {
-    
+
     private final Path pluginsFolder;
     private final String pluginName;
     private final Logger logger;
     private final List<Dependency> dependencies = new ArrayList<>();
-    
+    private LogLevel logLevel = LogLevel.NORMAL;
+
     private HopperBootstrap(Path pluginsFolder, String pluginName, Logger logger) {
         this.pluginsFolder = pluginsFolder;
         this.pluginName = pluginName;
@@ -143,7 +145,27 @@ public final class HopperBootstrap {
         dependencies.addAll(deps.getDependencies());
         return this;
     }
-    
+
+    /**
+     * Set the log verbosity level.
+     * <p>
+     * Controls how much output Hopper produces:
+     * <ul>
+     *   <li>VERBOSE - Full output (all processing steps, downloads, summaries)</li>
+     *   <li>NORMAL (default) - Download progress and final summary</li>
+     *   <li>QUIET - Only final result (which plugins were loaded)</li>
+     *   <li>SILENT - No output at all</li>
+     * </ul>
+     *
+     * @param level the verbosity level
+     * @return this builder for chaining
+     */
+    @NotNull
+    public HopperBootstrap logLevel(@NotNull LogLevel level) {
+        this.logLevel = level;
+        return this;
+    }
+
     /**
      * Download all registered dependencies.
      *
@@ -157,36 +179,61 @@ public final class HopperBootstrap {
                 deps.require(dep);
             }
         });
-        
-        // Download using Hopper
-        DownloadResult result = Hopper.download(pluginName, pluginsFolder);
-        
+
+        // Create Hopper logger adapter with log level
+        Hopper.Logger hopperLogger = createLogger();
+
+        // Download using Hopper with log level
+        DownloadResult result = Hopper.download(pluginName, pluginsFolder, hopperLogger, logLevel);
+
         // Log results
         logResult(result);
-        
+
         return result;
     }
-    
+
+    private Hopper.Logger createLogger() {
+        Hopper.Logger baseLogger = (level, message) -> {
+            switch (level) {
+                case INFO:
+                    logger.info(message);
+                    break;
+                case WARN:
+                    logger.warning(message);
+                    break;
+                case ERROR:
+                    logger.severe(message);
+                    break;
+            }
+        };
+        return Hopper.Logger.withLevel(baseLogger, logLevel);
+    }
+
     private void logResult(DownloadResult result) {
+        if (logLevel == LogLevel.SILENT) {
+            return;
+        }
+
         if (result.requiresRestart()) {
             logger.severe("========================================");
             logger.severe("  HOPPER BOOTSTRAP - Dependencies Downloaded");
             logger.severe("========================================");
-            
+
             for (DownloadResult.DownloadedDependency dep : result.downloaded()) {
                 logger.severe("  + " + dep.name() + " v" + dep.version());
             }
-            
+
             logger.severe("");
             logger.severe("  Server must be RESTARTED to load them.");
             logger.severe("========================================");
-        } else if (!result.existing().isEmpty()) {
+        } else if (!result.existing().isEmpty() && logLevel != LogLevel.QUIET) {
+            // Only show "satisfied" in NORMAL and VERBOSE modes
             logger.info("[Hopper] Dependencies satisfied:");
             for (DownloadResult.ExistingDependency dep : result.existing()) {
                 logger.info("  - " + dep.name() + " v" + dep.version());
             }
         }
-        
+
         if (!result.skipped().isEmpty()) {
             logger.warning("[Hopper] Skipped optional:");
             for (DownloadResult.SkippedDependency dep : result.skipped()) {
