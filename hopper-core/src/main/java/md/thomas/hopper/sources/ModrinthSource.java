@@ -3,6 +3,8 @@ package md.thomas.hopper.sources;
 import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyException;
 import md.thomas.hopper.DependencySource;
+import md.thomas.hopper.DependencySource.ChecksumType;
+import md.thomas.hopper.Platform;
 import md.thomas.hopper.util.HttpClient;
 import md.thomas.hopper.util.JsonParser;
 import md.thomas.hopper.version.Version;
@@ -32,18 +34,25 @@ public final class ModrinthSource implements DependencySource {
     public @NotNull List<Version> fetchVersions(@NotNull Dependency dependency) throws DependencyException {
         String slug = dependency.identifier();
         String mcVersion = dependency.minecraftVersion();
-        
+        Platform platform = dependency.platform().resolve();
+
         try {
             // Build URL with query parameters
             StringBuilder url = new StringBuilder(API_BASE)
                 .append("/project/").append(slug).append("/version");
-            
-            // Add loader filter (Bukkit-compatible loaders)
-            url.append("?loaders=").append(URLEncoder.encode("[\"paper\",\"spigot\",\"bukkit\",\"purpur\",\"folia\"]", 
-                StandardCharsets.UTF_8));
-            
+
+            // Add loader filter based on platform
+            String[] loaders = platform.modrinthLoaders();
+            StringBuilder loadersJson = new StringBuilder("[");
+            for (int i = 0; i < loaders.length; i++) {
+                if (i > 0) loadersJson.append(",");
+                loadersJson.append("\"").append(loaders[i]).append("\"");
+            }
+            loadersJson.append("]");
+            url.append("?loaders=").append(URLEncoder.encode(loadersJson.toString(), StandardCharsets.UTF_8));
+
             if (mcVersion != null) {
-                url.append("&game_versions=").append(URLEncoder.encode("[\"" + mcVersion + "\"]", 
+                url.append("&game_versions=").append(URLEncoder.encode("[\"" + mcVersion + "\"]",
                     StandardCharsets.UTF_8));
             }
             
@@ -129,17 +138,17 @@ public final class ModrinthSource implements DependencySource {
             @SuppressWarnings("unchecked")
             Map<String, String> hashes = (Map<String, String>) primaryFile.get("hashes");
             String sha512 = hashes != null ? hashes.get("sha512") : null;
-            String sha1 = hashes != null ? hashes.get("sha1") : null;
-            
+
             if (downloadUrl == null || fileName == null) {
                 throw new DependencyException(slug, "Invalid file info for version " + version);
             }
-            
+
             return new ResolvedDependency(
                 dependency.name(),
                 version,
                 downloadUrl,
-                null, // Modrinth uses SHA-512, not SHA-256; skip verification
+                sha512,
+                sha512 != null ? ChecksumType.SHA512 : null,
                 dependency.fileName() != null ? dependency.fileName() : fileName
             );
         } catch (DependencyException e) {

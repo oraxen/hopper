@@ -1,5 +1,6 @@
 package md.thomas.hopper.util;
 
+import md.thomas.hopper.DependencySource.ChecksumType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -14,11 +15,75 @@ import java.security.NoSuchAlgorithmException;
  * Checksum utilities for verifying file integrity.
  */
 public final class Checksum {
-    
+
     private static final char[] HEX_CHARS = "0123456789abcdef".toCharArray();
-    
+
     private Checksum() {}
-    
+
+    /**
+     * Calculate checksum of a file using the specified algorithm.
+     *
+     * @param path the file path
+     * @param type the checksum algorithm
+     * @return the checksum as a lowercase hex string
+     */
+    @NotNull
+    public static String hash(@NotNull Path path, @NotNull ChecksumType type) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance(type.algorithm());
+
+            try (InputStream in = Files.newInputStream(path)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+
+            return bytesToHex(digest.digest());
+        } catch (NoSuchAlgorithmException | IOException e) {
+            throw new RuntimeException("Failed to calculate checksum: " + path, e);
+        }
+    }
+
+    /**
+     * Calculate checksum of bytes using the specified algorithm.
+     *
+     * @param data the data
+     * @param type the checksum algorithm
+     * @return the checksum as a lowercase hex string
+     */
+    @NotNull
+    public static String hash(byte[] data, @NotNull ChecksumType type) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance(type.algorithm());
+            return bytesToHex(digest.digest(data));
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(type.algorithm() + " not available", e);
+        }
+    }
+
+    /**
+     * Verify that a file matches an expected checksum.
+     *
+     * @param path the file path
+     * @param expected the expected checksum (hex string)
+     * @param type the checksum algorithm (null to skip verification)
+     * @return true if checksums match, or if no checksum/type provided
+     */
+    public static boolean verify(@NotNull Path path, @Nullable String expected, @Nullable ChecksumType type) {
+        if (expected == null || expected.isEmpty() || type == null) {
+            return true; // No checksum to verify
+        }
+
+        if (!Files.exists(path)) {
+            return false;
+        }
+
+        String actual = hash(path, type);
+        return actual.equalsIgnoreCase(expected);
+    }
+
     /**
      * Calculate SHA-256 checksum of a file.
      *
@@ -27,23 +92,9 @@ public final class Checksum {
      */
     @NotNull
     public static String sha256(@NotNull Path path) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            
-            try (InputStream in = Files.newInputStream(path)) {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = in.read(buffer)) != -1) {
-                    digest.update(buffer, 0, read);
-                }
-            }
-            
-            return bytesToHex(digest.digest());
-        } catch (NoSuchAlgorithmException | IOException e) {
-            throw new RuntimeException("Failed to calculate checksum: " + path, e);
-        }
+        return hash(path, ChecksumType.SHA256);
     }
-    
+
     /**
      * Calculate SHA-256 checksum of bytes.
      *
@@ -52,14 +103,9 @@ public final class Checksum {
      */
     @NotNull
     public static String sha256(byte[] data) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return bytesToHex(digest.digest(data));
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
+        return hash(data, ChecksumType.SHA256);
     }
-    
+
     /**
      * Verify that a file matches an expected SHA-256 checksum.
      *
@@ -68,16 +114,7 @@ public final class Checksum {
      * @return true if checksums match
      */
     public static boolean verify(@NotNull Path path, @Nullable String expected) {
-        if (expected == null || expected.isEmpty()) {
-            return true; // No checksum to verify
-        }
-        
-        if (!Files.exists(path)) {
-            return false;
-        }
-        
-        String actual = sha256(path);
-        return actual.equalsIgnoreCase(expected);
+        return verify(path, expected, ChecksumType.SHA256);
     }
     
     /**

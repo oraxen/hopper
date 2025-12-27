@@ -316,9 +316,8 @@ public final class Hopper {
         
         if (Files.exists(targetPath)) {
             // Verify checksum if provided
-            if (resolved.sha256() != null) {
-                String actualChecksum = md.thomas.hopper.util.Checksum.sha256(targetPath);
-                if (resolved.sha256().equalsIgnoreCase(actualChecksum)) {
+            if (resolved.checksum() != null && resolved.checksumType() != null) {
+                if (md.thomas.hopper.util.Checksum.verify(targetPath, resolved.checksum(), resolved.checksumType())) {
                     logger.info("  Already downloaded with matching checksum");
                     result.addExisting(depName, selected, targetPath);
                     lockfile.updateEntry(depName, resolved);
@@ -338,21 +337,21 @@ public final class Hopper {
                 return;
             }
         }
-        
+
         // Download
         logger.info("  Downloading from: " + resolved.downloadUrl());
         md.thomas.hopper.util.HttpClient.download(resolved.downloadUrl(), targetPath);
-        
+
         // Verify checksum
-        if (resolved.sha256() != null) {
-            String actualChecksum = md.thomas.hopper.util.Checksum.sha256(targetPath);
-            if (!resolved.sha256().equalsIgnoreCase(actualChecksum)) {
+        if (resolved.checksum() != null && resolved.checksumType() != null) {
+            if (!md.thomas.hopper.util.Checksum.verify(targetPath, resolved.checksum(), resolved.checksumType())) {
                 try {
                     Files.deleteIfExists(targetPath);
                 } catch (IOException ignored) {
                     // Best effort cleanup
                 }
-                throw new DependencyException(depName, "Checksum verification failed");
+                throw new DependencyException(depName, "Checksum verification failed (" +
+                    resolved.checksumType().algorithm() + ")");
             }
         }
         

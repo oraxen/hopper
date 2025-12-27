@@ -21,7 +21,7 @@ import java.util.Objects;
  * </ul>
  */
 public final class Dependency {
-    
+
     private final SourceType sourceType;
     private final String identifier;
     private final @Nullable String name;
@@ -32,7 +32,8 @@ public final class Dependency {
     private final FailurePolicy failurePolicy;
     private final @Nullable String minecraftVersion;
     private final @Nullable String assetPattern;
-    
+    private final Platform platform;
+
     private Dependency(Builder<?> builder) {
         this.sourceType = builder.sourceType;
         this.identifier = builder.identifier;
@@ -44,6 +45,7 @@ public final class Dependency {
         this.failurePolicy = builder.failurePolicy;
         this.minecraftVersion = builder.minecraftVersion;
         this.assetPattern = builder.assetPattern;
+        this.platform = builder.platform;
     }
     
     // ========== Factory Methods ==========
@@ -137,7 +139,14 @@ public final class Dependency {
     public @Nullable String assetPattern() {
         return assetPattern;
     }
-    
+
+    /**
+     * @return the platform preference (AUTO by default)
+     */
+    public Platform platform() {
+        return platform;
+    }
+
     /**
      * @return true if this is a latest version request (no constraint or constraint is latest)
      */
@@ -191,7 +200,8 @@ public final class Dependency {
         FailurePolicy failurePolicy = FailurePolicy.FAIL;
         @Nullable String minecraftVersion;
         @Nullable String assetPattern;
-        
+        Platform platform = Platform.AUTO;
+
         Builder(SourceType sourceType, String identifier) {
             this.sourceType = sourceType;
             this.identifier = Objects.requireNonNull(identifier, "identifier");
@@ -283,7 +293,20 @@ public final class Dependency {
             this.minecraftVersion = mcVersion;
             return self();
         }
-        
+
+        /**
+         * Set the target platform for this dependency.
+         * <p>
+         * Defaults to {@link Platform#AUTO} which auto-detects the server type.
+         * Use this to override when you need a specific platform variant.
+         *
+         * @param platform the target platform
+         */
+        public T platform(Platform platform) {
+            this.platform = Objects.requireNonNull(platform);
+            return self();
+        }
+
         /**
          * Build the dependency.
          */
