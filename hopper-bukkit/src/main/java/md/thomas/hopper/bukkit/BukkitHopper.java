@@ -115,17 +115,11 @@ public final class BukkitHopper {
     @NotNull
     public static DownloadResult download(@NotNull Plugin plugin) {
         Path pluginsFolder = plugin.getDataFolder().getParentFile().toPath();
-        
+
         // Create logger adapter
         Hopper.Logger logger = createLogger(plugin.getLogger());
-        
-        // Build Hopper with Bukkit settings
-        Hopper hopper = Hopper.builder()
-            .pluginsFolder(pluginsFolder)
-            .logger(logger)
-            .build();
-        
-        return Hopper.download(plugin.getName(), pluginsFolder);
+
+        return Hopper.download(plugin.getName(), pluginsFolder, logger);
     }
 
     /**

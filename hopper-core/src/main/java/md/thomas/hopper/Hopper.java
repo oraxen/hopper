@@ -130,21 +130,45 @@ public final class Hopper {
      * @return download result
      */
     public static DownloadResult download(@NotNull String pluginName, @Nullable Path pluginsFolder) {
+        return download(pluginName, pluginsFolder, null);
+    }
+
+    /**
+     * Download all registered dependencies for a plugin with explicit plugins folder and logger.
+     *
+     * @param pluginName the plugin name
+     * @param pluginsFolder the plugins folder (null to auto-detect)
+     * @param logger the logger to use (null for NOOP)
+     * @return download result
+     */
+    public static DownloadResult download(@NotNull String pluginName, @Nullable Path pluginsFolder, @Nullable Logger logger) {
+        Logger log = logger != null ? logger : Logger.NOOP;
+
         PluginRegistration registration = registrations.get(pluginName);
         if (registration == null) {
-            // No dependencies registered
+            // No dependencies registered - this can happen if:
+            // 1. register() was never called
+            // 2. Plugin name doesn't match (typo, different casing)
+            // 3. Different classloader (shouldn't happen within same plugin)
+            log.warn("No dependencies registered for plugin: " + pluginName);
+            if (!registrations.isEmpty()) {
+                log.warn("Registered plugins: " + registrations.keySet());
+            }
             return new DownloadResult.Builder().build();
         }
-        
+
+        log.info("Processing " + registration.dependencies().size() + " dependency(ies) for " + pluginName);
+
         // Auto-detect plugins folder if not provided
         if (pluginsFolder == null) {
             pluginsFolder = Path.of("plugins");
         }
-        
+
         Hopper hopper = builder()
             .pluginsFolder(pluginsFolder)
+            .logger(logger)
             .build();
-        
+
         return hopper.downloadDependencies(pluginName, registration.dependencies());
     }
     
