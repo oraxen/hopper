@@ -4,6 +4,8 @@ import md.thomas.hopper.Dependency;
 import md.thomas.hopper.DependencyCollector;
 import md.thomas.hopper.DownloadResult;
 import md.thomas.hopper.Hopper;
+import md.thomas.hopper.MinecraftVersion;
+import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 
@@ -70,7 +72,74 @@ import java.util.logging.Logger;
  */
 public final class BukkitHopper {
 
+    private static volatile boolean minecraftVersionDetected = false;
+
     private BukkitHopper() {}
+
+    /**
+     * Detect and set the global Minecraft version from the server.
+     * <p>
+     * This is called automatically during {@link #download(Plugin)} and
+     * {@link #downloadAndLoad(Plugin)}, but can be called manually if needed.
+     * <p>
+     * The detected version is set globally via {@link MinecraftVersion#set(String)}
+     * and will be used for all dependencies that don't have an explicit
+     * {@code minecraftVersion()} set.
+     *
+     * @return the detected Minecraft version, or null if detection failed
+     */
+    public static String detectMinecraftVersion() {
+        // Only detect once
+        if (minecraftVersionDetected) {
+            return MinecraftVersion.get();
+        }
+
+        String mcVersion = null;
+
+        // Try Paper's getMinecraftVersion() first via reflection (available since Paper 1.19+)
+        try {
+            java.lang.reflect.Method method = Bukkit.class.getMethod("getMinecraftVersion");
+            mcVersion = (String) method.invoke(null);
+        } catch (Exception ignored) {
+            // Paper method not available, fall back to parsing getBukkitVersion()
+        }
+
+        // Fall back to parsing getBukkitVersion()
+        // Format: "1.21.4-R0.1-SNAPSHOT" -> "1.21.4"
+        if (mcVersion == null) {
+            try {
+                String bukkitVersion = Bukkit.getBukkitVersion();
+                if (bukkitVersion != null) {
+                    int dashIndex = bukkitVersion.indexOf('-');
+                    if (dashIndex > 0) {
+                        mcVersion = bukkitVersion.substring(0, dashIndex);
+                    } else {
+                        mcVersion = bukkitVersion;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Detection failed, will return null
+            }
+        }
+
+        if (mcVersion != null) {
+            MinecraftVersion.set(mcVersion);
+        }
+        minecraftVersionDetected = true;
+        return mcVersion;
+    }
+
+    /**
+     * Manually set the Minecraft version for dependency filtering.
+     * <p>
+     * Use this to override auto-detection if needed.
+     *
+     * @param version the Minecraft version (e.g., "1.21", "1.20.4")
+     */
+    public static void setMinecraftVersion(@NotNull String version) {
+        MinecraftVersion.set(version);
+        minecraftVersionDetected = true;
+    }
 
     /**
      * Result of a combined download and load operation.
@@ -108,6 +177,10 @@ public final class BukkitHopper {
     /**
      * Download all registered dependencies.
      * Call this in your plugin's onLoad() method.
+     * <p>
+     * This method automatically detects and sets the server's Minecraft version
+     * for dependency filtering. Dependencies will be filtered to only return
+     * versions compatible with the detected MC version.
      *
      * @param plugin the plugin instance
      * @return download result
@@ -116,8 +189,15 @@ public final class BukkitHopper {
     public static DownloadResult download(@NotNull Plugin plugin) {
         Path pluginsFolder = plugin.getDataFolder().getParentFile().toPath();
 
+        // Auto-detect Minecraft version for filtering
+        String mcVersion = detectMinecraftVersion();
+
         // Create logger adapter
         Hopper.Logger logger = createLogger(plugin.getLogger());
+
+        if (mcVersion != null) {
+            logger.info("[Hopper] Detected Minecraft version: " + mcVersion);
+        }
 
         return Hopper.download(plugin.getName(), pluginsFolder, logger);
     }
