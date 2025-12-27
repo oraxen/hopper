@@ -6,6 +6,7 @@ import org.bukkit.plugin.InvalidDescriptionException;
 import org.bukkit.plugin.InvalidPluginException;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -320,8 +321,8 @@ public final class PluginLoader {
     private static File getPluginFile(Plugin plugin) {
         try {
             // Try to get the plugin file via reflection
-            // This works for most Bukkit implementations
-            java.lang.reflect.Method getFile = plugin.getClass().getMethod("getFile");
+            // JavaPlugin.getFile() is protected, so we must use getDeclaredMethod
+            java.lang.reflect.Method getFile = JavaPlugin.class.getDeclaredMethod("getFile");
             getFile.setAccessible(true);
             Object result = getFile.invoke(plugin);
             if (result instanceof File) {
