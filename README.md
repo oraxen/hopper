@@ -9,6 +9,9 @@ Hopper downloads plugin dependencies from Hangar, Modrinth, SpigotMC, and GitHub
 - **Multiple Sources**: Download from Hangar, Modrinth, Spiget (SpigotMC), GitHub Releases, or direct URLs
 - **Smart Version Resolution**: Supports exact versions, minimum versions, ranges, and update policies
 - **Auto-Load Support**: Automatically load downloaded plugins at runtime—no server restart required!
+- **Platform-Aware**: Auto-detects Folia, Paper, Purpur, Spigot, Bukkit, Velocity, BungeeCord, and Waterfall
+- **Auto Minecraft Version Detection**: Automatically filters dependencies for your server's Minecraft version
+- **Configurable Logging**: Control output verbosity (VERBOSE, NORMAL, QUIET, SILENT)
 - **Non-Standard Versions**: Handles formats like `R4.0.9`, `5.4.0-SNAPSHOT`, `build-123`, `2024.12.20`
 - **Multi-Plugin Coordination**: Multiple plugins can shade Hopper and share the same downloaded dependencies
 - **Lockfile Support**: Reproducible builds with `hopper.lock`
@@ -26,13 +29,13 @@ repositories {
 
 dependencies {
     // Core (platform-agnostic)
-    implementation("md.thomas.hopper:hopper-core:1.1.2")
+    implementation("md.thomas.hopper:hopper-core:1.4.0")
 
     // Bukkit/Spigot
-    implementation("md.thomas.hopper:hopper-bukkit:1.1.2")
+    implementation("md.thomas.hopper:hopper-bukkit:1.4.0")
 
     // Paper (with bootstrap support)
-    implementation("md.thomas.hopper:hopper-paper:1.1.2")
+    implementation("md.thomas.hopper:hopper-paper:1.4.0")
 }
 
 // Shade and relocate
@@ -49,7 +52,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'md.thomas.hopper:hopper-bukkit:1.1.2'
+    implementation 'md.thomas.hopper:hopper-bukkit:1.4.0'
 }
 ```
 
@@ -64,7 +67,7 @@ dependencies {
 <dependency>
     <groupId>md.thomas.hopper</groupId>
     <artifactId>hopper-bukkit</artifactId>
-    <version>1.1.2</version>
+    <version>1.4.0</version>
 </dependency>
 ```
 
@@ -85,7 +88,8 @@ public class MyPlugin extends JavaPlugin {
             
             deps.require(Dependency.modrinth("packetevents")
                 .version("2.11.0")
-                .minecraftVersion("1.21")
+                // minecraftVersion auto-detected, but can override:
+                // .minecraftVersion("1.21")
                 .onFailure(FailurePolicy.WARN_SKIP)  // Optional dependency
                 .build());
         });
@@ -295,6 +299,94 @@ Handle failures per-dependency:
 | `WARN_USE_LATEST` | Try latest available |
 | `WARN_SKIP` | Skip this dependency |
 
+## Log Levels
+
+Control output verbosity:
+
+```java
+// Quiet mode - only show final result
+DownloadResult result = BukkitHopper.download(this, LogLevel.QUIET);
+
+// Or with downloadAndLoad
+var result = BukkitHopper.downloadAndLoad(this, LogLevel.VERBOSE);
+```
+
+| Level | Output |
+|-------|--------|
+| `VERBOSE` | All processing steps, version fetching, downloads, and summaries |
+| `NORMAL` | Download progress and final loaded plugins summary (default) |
+| `QUIET` | Only the final result (which plugins were loaded) |
+| `SILENT` | No output at all |
+
+Example output at each level:
+
+```
+VERBOSE:
+  [MyPlugin] [Hopper] Detected Minecraft version: 1.21.1
+  [MyPlugin] Processing 2 dependency(ies) for MyPlugin
+  [MyPlugin] Processing dependency: CommandAPI
+  [MyPlugin]   Fetching versions from MODRINTH...
+  [MyPlugin]   Selected version: 11.1.0
+  [MyPlugin]   Downloading from: https://cdn.modrinth.com/...
+  [MyPlugin] [Hopper] Loaded: CommandAPI 11.1.0, PacketEvents 2.11.1
+
+NORMAL:
+  [MyPlugin] [Hopper] Downloading CommandAPI 11.1.0...
+  [MyPlugin] [Hopper] Loaded: CommandAPI 11.1.0, PacketEvents 2.11.1
+
+QUIET:
+  [MyPlugin] [Hopper] Loaded: CommandAPI 11.1.0, PacketEvents 2.11.1
+
+SILENT:
+  (no output)
+```
+
+## Platform Detection
+
+Hopper auto-detects your server platform and downloads platform-specific builds when available:
+
+```java
+// Automatic detection (recommended)
+Dependency.modrinth("packetevents").build()  // Gets Paper build on Paper, Spigot on Spigot
+
+// Force specific platform
+Dependency.modrinth("packetevents")
+    .platform(Platform.PAPER)
+    .build()
+```
+
+Supported platforms:
+
+| Platform | Detection |
+|----------|-----------|
+| `FOLIA` | Regionized multithreading classes |
+| `PURPUR` | PurpurConfig class |
+| `PAPER` | Paper configuration classes |
+| `SPIGOT` | SpigotConfig class |
+| `BUKKIT` | Fallback default |
+| `VELOCITY` | Velocity proxy classes |
+| `WATERFALL` | Waterfall configuration |
+| `BUNGEECORD` | BungeeCord proxy classes |
+
+## Minecraft Version Filtering
+
+Hopper automatically detects your server's Minecraft version and filters dependencies accordingly:
+
+```java
+// Automatic - Hopper detects 1.21.1 from server
+Dependency.modrinth("packetevents").build()  // Only gets 1.21.1-compatible versions
+
+// Manual override for specific dependency
+Dependency.modrinth("old-plugin")
+    .minecraftVersion("1.19.4")
+    .build()
+
+// Manual global override
+BukkitHopper.setMinecraftVersion("1.20.4");
+```
+
+The detection works automatically with both Paper (`Bukkit.getMinecraftVersion()`) and Spigot (parsing `Bukkit.getBukkitVersion()`).
+
 ## Multi-Plugin Coordination
 
 When multiple plugins shade Hopper, they automatically coordinate:
@@ -341,6 +433,9 @@ Hopper handles various version formats:
 - `Dependency` - Builder for dependencies
 - `DependencyCollector` - Collects dependencies during registration
 - `DownloadResult` - Result of download operation
+- `LogLevel` - Output verbosity control (VERBOSE, NORMAL, QUIET, SILENT)
+- `Platform` - Server platform detection (Folia, Paper, Spigot, etc.)
+- `MinecraftVersion` - Global Minecraft version configuration
 
 ### Version Classes
 
