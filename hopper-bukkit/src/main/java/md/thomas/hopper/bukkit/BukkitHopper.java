@@ -144,6 +144,8 @@ public final class BukkitHopper {
     @NotNull
     public static DownloadAndLoadResult downloadAndLoad(@NotNull Plugin plugin) {
         Logger logger = plugin.getLogger();
+        Path pluginsFolder = plugin.getDataFolder().getParentFile().toPath();
+        Path coordinationDir = pluginsFolder.resolve(".hopper");
 
         // First, download all dependencies
         DownloadResult downloadResult = download(plugin);
@@ -156,17 +158,17 @@ public final class BukkitHopper {
             );
         }
 
-        // Collect paths of newly downloaded plugins
-        List<Path> pluginsToLoad = new ArrayList<>();
+        // Collect plugins to load with their names (for better duplicate detection)
+        List<PluginLoader.PluginToLoad> pluginsToLoad = new ArrayList<>();
         for (DownloadResult.DownloadedDependency dep : downloadResult.downloaded()) {
-            pluginsToLoad.add(dep.path());
+            pluginsToLoad.add(new PluginLoader.PluginToLoad(dep.name(), dep.path()));
         }
 
         // Log what we're about to do
         logger.info("[Hopper] Auto-loading " + pluginsToLoad.size() + " downloaded plugin(s)...");
 
-        // Load the downloaded plugins
-        PluginLoader.LoadResult loadResult = PluginLoader.loadAll(pluginsToLoad, logger);
+        // Load the downloaded plugins (with coordination lock and name-based duplicate detection)
+        PluginLoader.LoadResult loadResult = PluginLoader.loadAllWithNames(pluginsToLoad, coordinationDir, logger);
 
         // Log the final result
         logDownloadAndLoadResult(plugin, downloadResult, loadResult);

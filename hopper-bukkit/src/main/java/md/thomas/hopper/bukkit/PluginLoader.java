@@ -1,5 +1,6 @@
 package md.thomas.hopper.bukkit;
 
+import md.thomas.hopper.coordination.HopperCoordinator;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.InvalidDescriptionException;
 import org.bukkit.plugin.InvalidPluginException;
@@ -9,6 +10,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -73,6 +75,14 @@ public final class PluginLoader {
     ) {}
 
     /**
+     * A plugin to load, with its expected name and path.
+     */
+    public record PluginToLoad(
+        @NotNull String name,
+        @NotNull Path path
+    ) {}
+
+    /**
      * Load a single plugin JAR file.
      *
      * @param pluginPath the path to the plugin JAR
@@ -92,6 +102,22 @@ public final class PluginLoader {
      */
     @Nullable
     public static Plugin load(@NotNull Path pluginPath, @Nullable Logger logger) {
+        return load(pluginPath, null, logger);
+    }
+
+    /**
+     * Load a single plugin JAR file with expected name and logging.
+     * <p>
+     * If the expected plugin name is provided and a plugin with that name is already
+     * loaded, returns the existing plugin without attempting to load again.
+     *
+     * @param pluginPath the path to the plugin JAR
+     * @param expectedName the expected plugin name (for duplicate detection), or null
+     * @param logger optional logger for status messages
+     * @return the loaded Plugin instance, or null if loading failed
+     */
+    @Nullable
+    public static Plugin load(@NotNull Path pluginPath, @Nullable String expectedName, @Nullable Logger logger) {
         File pluginFile = pluginPath.toFile();
 
         if (!pluginFile.exists()) {
@@ -110,7 +136,18 @@ public final class PluginLoader {
 
         PluginManager pm = Bukkit.getPluginManager();
 
-        // Check if plugin is already loaded
+        // Check if plugin is already loaded by name (most reliable check)
+        if (expectedName != null) {
+            Plugin existing = pm.getPlugin(expectedName);
+            if (existing != null) {
+                if (logger != null) {
+                    logger.info("[Hopper] Plugin already loaded: " + existing.getName() + " v" + existing.getDescription().getVersion());
+                }
+                return existing;
+            }
+        }
+
+        // Also check by file path as fallback
         try {
             for (Plugin p : pm.getPlugins()) {
                 File pFile = getPluginFile(p);
@@ -193,6 +230,73 @@ public final class PluginLoader {
                 ));
             } else {
                 failed.add(new FailedPlugin(path, "Failed to load plugin"));
+            }
+        }
+
+        return new LoadResult(loaded, failed);
+    }
+
+    /**
+     * Load multiple plugins with their expected names.
+     * <p>
+     * This method is preferred over {@link #loadAll(List, Logger)} when the expected
+     * plugin names are known, as it provides better duplicate detection.
+     *
+     * @param plugins the plugins to load with their names and paths
+     * @param logger optional logger for status messages
+     * @return the load result containing loaded and failed plugins
+     */
+    @NotNull
+    public static LoadResult loadAllWithNames(@NotNull List<PluginToLoad> plugins, @Nullable Logger logger) {
+        return loadAllWithNames(plugins, null, logger);
+    }
+
+    /**
+     * Load multiple plugins with their expected names, using file-based coordination.
+     * <p>
+     * This method acquires a file lock before loading to prevent race conditions when
+     * multiple plugins using Hopper try to load the same dependency simultaneously.
+     *
+     * @param plugins the plugins to load with their names and paths
+     * @param coordinationDir the .hopper directory for file locking (null to skip coordination)
+     * @param logger optional logger for status messages
+     * @return the load result containing loaded and failed plugins
+     */
+    @NotNull
+    public static LoadResult loadAllWithNames(@NotNull List<PluginToLoad> plugins,
+                                               @Nullable Path coordinationDir,
+                                               @Nullable Logger logger) {
+        if (coordinationDir == null) {
+            return loadAllWithNamesInternal(plugins, logger);
+        }
+
+        // Use file-based coordination to prevent race conditions
+        try (HopperCoordinator coordinator = HopperCoordinator.acquire(coordinationDir)) {
+            return loadAllWithNamesInternal(plugins, logger);
+        } catch (IOException e) {
+            if (logger != null) {
+                logger.log(Level.WARNING, "[Hopper] Failed to acquire coordination lock, proceeding without lock", e);
+            }
+            // Fall back to uncoordinated loading
+            return loadAllWithNamesInternal(plugins, logger);
+        }
+    }
+
+    @NotNull
+    private static LoadResult loadAllWithNamesInternal(@NotNull List<PluginToLoad> plugins, @Nullable Logger logger) {
+        List<LoadedPlugin> loaded = new ArrayList<>();
+        List<FailedPlugin> failed = new ArrayList<>();
+
+        for (PluginToLoad toLoad : plugins) {
+            Plugin plugin = load(toLoad.path(), toLoad.name(), logger);
+            if (plugin != null) {
+                loaded.add(new LoadedPlugin(
+                    plugin.getName(),
+                    plugin.getDescription().getVersion(),
+                    toLoad.path()
+                ));
+            } else {
+                failed.add(new FailedPlugin(toLoad.path(), "Failed to load plugin"));
             }
         }
 
