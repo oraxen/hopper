@@ -29,13 +29,13 @@ repositories {
 
 dependencies {
     // Core (platform-agnostic)
-    implementation("md.thomas.hopper:hopper-core:1.4.0")
+    implementation("md.thomas.hopper:hopper-core:1.4.1")
 
     // Bukkit/Spigot
-    implementation("md.thomas.hopper:hopper-bukkit:1.4.0")
+    implementation("md.thomas.hopper:hopper-bukkit:1.4.1")
 
     // Paper (with bootstrap support)
-    implementation("md.thomas.hopper:hopper-paper:1.4.0")
+    implementation("md.thomas.hopper:hopper-paper:1.4.1")
 }
 
 // Shade and relocate
@@ -52,7 +52,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'md.thomas.hopper:hopper-bukkit:1.4.0'
+    implementation 'md.thomas.hopper:hopper-bukkit:1.4.1'
 }
 ```
 
@@ -67,7 +67,7 @@ dependencies {
 <dependency>
     <groupId>md.thomas.hopper</groupId>
     <artifactId>hopper-bukkit</artifactId>
-    <version>1.4.0</version>
+    <version>1.4.1</version>
 </dependency>
 ```
 
