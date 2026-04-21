@@ -298,7 +298,31 @@ public final class Hopper {
                 }
             }
         }
-        
+
+        // Respect any jar the user (or another plugin) has already installed under
+        // a different filename. Exclude the lockfile-tracked jar so Hopper's own
+        // stale download doesn't block a legitimate upgrade to a new constraint.
+        List<md.thomas.hopper.util.PluginYamlReader.Match> installed =
+            md.thomas.hopper.util.PluginYamlReader.findAll(pluginsFolder, depName);
+        if (lockedEntry != null) {
+            String lockedFile = lockedEntry.fileName();
+            installed.removeIf(m -> m.path().getFileName().toString().equals(lockedFile));
+        }
+        if (!installed.isEmpty()) {
+            md.thomas.hopper.util.PluginYamlReader.Match chosen = selectHighestVersion(installed);
+            String detectedVersion = chosen.descriptor().version();
+            Version installedVersion = detectedVersion != null ? Version.tryParse(detectedVersion) : null;
+            if (installedVersion == null) {
+                installedVersion = Version.tryParse("0.0.0");
+            }
+            logger.normal("[Hopper] " + depName + " already installed as "
+                + chosen.path().getFileName()
+                + (detectedVersion != null ? " v" + detectedVersion : "")
+                + " - skipping download");
+            result.addExisting(depName, installedVersion, chosen.path());
+            return;
+        }
+
         // Need to resolve version
         DependencySource source = sources.get(dep.sourceType());
         if (source == null) {
@@ -378,6 +402,34 @@ public final class Hopper {
         lockfile.updateEntry(depName, resolved);
     }
     
+    /**
+     * Deterministically pick the match with the highest parsable version; if
+     * none of the matches have parsable versions, fall back to the jar whose
+     * filename sorts first. Keeps behavior stable across restarts when admins
+     * leave multiple jars with the same plugin name in place.
+     */
+    private static md.thomas.hopper.util.PluginYamlReader.Match selectHighestVersion(
+            List<md.thomas.hopper.util.PluginYamlReader.Match> matches) {
+        md.thomas.hopper.util.PluginYamlReader.Match bestWithVersion = null;
+        Version bestVersion = null;
+        md.thomas.hopper.util.PluginYamlReader.Match fallback = null;
+        for (md.thomas.hopper.util.PluginYamlReader.Match m : matches) {
+            if (fallback == null || m.path().getFileName().toString()
+                    .compareTo(fallback.path().getFileName().toString()) < 0) {
+                fallback = m;
+            }
+            String raw = m.descriptor().version();
+            if (raw == null) continue;
+            Version v = Version.tryParse(raw);
+            if (v == null) continue;
+            if (bestVersion == null || v.compareTo(bestVersion) > 0) {
+                bestVersion = v;
+                bestWithVersion = m;
+            }
+        }
+        return bestWithVersion != null ? bestWithVersion : fallback;
+    }
+
     private void handleFailure(Dependency dep, String error, DownloadResult.Builder result) {
         String depName = dep.name();
         FailurePolicy policy = dep.failurePolicy();
