@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
@@ -42,6 +44,11 @@ public final class PluginYamlReader {
     public record Descriptor(@NotNull String name, @Nullable String version) {}
 
     /**
+     * A jar file on disk together with its parsed descriptor.
+     */
+    public record Match(@NotNull Path path, @NotNull Descriptor descriptor) {}
+
+    /**
      * Read the plugin descriptor from a jar, or null if none is found.
      */
     @Nullable
@@ -59,31 +66,33 @@ public final class PluginYamlReader {
                 }
             }
         } catch (IOException e) {
-            // Malformed/unreadable jar — treat as not a plugin.
+            // Malformed/unreadable jar - treat as not a plugin.
         }
         return null;
     }
 
     /**
-     * Find the first jar in <code>pluginsFolder</code> whose descriptor name
-     * matches <code>pluginName</code> (case-insensitive).
+     * Collect every jar in <code>pluginsFolder</code> whose descriptor name
+     * matches <code>pluginName</code> (case-insensitive). Returns each match
+     * with its parsed descriptor so callers do not need to re-open the jar.
      */
-    @Nullable
-    public static Path findInstalledPlugin(@NotNull Path pluginsFolder, @NotNull String pluginName) {
+    @NotNull
+    public static List<Match> findAll(@NotNull Path pluginsFolder, @NotNull String pluginName) {
+        List<Match> matches = new ArrayList<>();
         if (!Files.isDirectory(pluginsFolder)) {
-            return null;
+            return matches;
         }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(pluginsFolder, "*.jar")) {
             for (Path jar : stream) {
                 Descriptor d = read(jar);
                 if (d != null && d.name().equalsIgnoreCase(pluginName)) {
-                    return jar;
+                    matches.add(new Match(jar, d));
                 }
             }
         } catch (IOException e) {
             // Ignore
         }
-        return null;
+        return matches;
     }
 
     @Nullable
