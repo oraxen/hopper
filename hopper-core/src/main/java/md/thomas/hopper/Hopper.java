@@ -298,7 +298,29 @@ public final class Hopper {
                 }
             }
         }
-        
+
+        // Respect any jar the user (or another plugin) has already installed under
+        // a different filename. Avoids clobbering dev builds or forks with whatever
+        // the upstream source serves up.
+        Path installedPath = md.thomas.hopper.util.PluginYamlReader.findInstalledPlugin(pluginsFolder, depName);
+        if (installedPath != null) {
+            md.thomas.hopper.util.PluginYamlReader.Descriptor installed =
+                md.thomas.hopper.util.PluginYamlReader.read(installedPath);
+            Version installedVersion = null;
+            if (installed != null && installed.version() != null) {
+                installedVersion = Version.tryParse(installed.version());
+            }
+            if (installedVersion == null) {
+                installedVersion = Version.tryParse("0.0.0");
+            }
+            logger.normal("[Hopper] " + depName + " already installed as "
+                + installedPath.getFileName()
+                + (installed != null && installed.version() != null ? " v" + installed.version() : "")
+                + " — skipping download");
+            result.addExisting(depName, installedVersion, installedPath);
+            return;
+        }
+
         // Need to resolve version
         DependencySource source = sources.get(dep.sourceType());
         if (source == null) {
